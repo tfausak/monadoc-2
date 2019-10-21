@@ -23,3 +23,5 @@ blocks:
 promotions:
   - name: Deploy promotion
     pipeline_file: deploy.yml
+    auto_promote:
+      when: result = 'passed' and branch = 'master'
