@@ -19,3 +19,7 @@ blocks:
             - docker-compose run stack .semaphore/build.sh
             - cache store stack .stack
             - aws s3 cp function.zip "s3://monadoc/functions/$SEMAPHORE_GIT_SHA.zip"
+
+promotions:
+  - name: Deploy promotion
+    pipeline_file: deploy.yml

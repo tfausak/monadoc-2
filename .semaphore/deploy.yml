@@ -1,0 +1,22 @@
+name: Deploy pipeline
+version: v1.0
+
+agent:
+  machine:
+    os_image: ubuntu1804
+    type: e1-standard-2
+
+blocks:
+  - name: Deploy block
+    task:
+      secrets:
+        - name: aws-credentials
+      jobs:
+        - name: Deploy job
+          commands:
+            - checkout
+            - docker-compose run terraform terraform init
+            - docker-compose run terraform terraform apply
+              -auto-approve
+              -var commit="$SEMAPHORE_GIT_SHA"
+              -var publish=true

@@ -4,3 +4,5 @@
 /function/*
 !/function/bootstrap
 /function.zip
+
+/terraform/.terraform/
