@@ -1,0 +1,21 @@
+name: Build pipeline
+version: v1.0
+
+agent:
+  machine:
+    os_image: ubuntu1804
+    type: e1-standard-2
+
+blocks:
+  - name: Build block
+    task:
+      secrets:
+        - name: aws-credentials
+      jobs:
+        - name: Build job
+          commands:
+            - checkout
+            - cache restore stack
+            - docker-compose run stack .semaphore/build.sh
+            - cache store stack .stack
+            - aws s3 cp function.zip "s3://monadoc/functions/$SEMAPHORE_GIT_SHA.zip"

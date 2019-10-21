@@ -1,2 +1,6 @@
 /.stack/
 /stack.yaml.lock
+
+/function/*
+!/function/bootstrap
+/function.zip
