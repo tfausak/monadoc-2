@@ -86,20 +86,21 @@ getLambda = do
 exampleLambda :: Lambda
 exampleLambda request = pure Response
   { responseBody = Just
-    . fromUtf8
-    . Data.ByteString.Base64.encode
-    . toUtf8
     . Data.Text.Lazy.toStrict
     . Data.Aeson.Text.encodeToLazyText
     $ Data.Aeson.object
-      [ jsonPair "body" $ requestBody request
+      [ jsonPair "body"
+        . (if requestIsBase64Encoded request
+          then fmap (fromUtf8 . Data.ByteString.Base64.decodeLenient . toUtf8)
+          else id)
+        $ requestBody request
       , jsonPair "httpMethod" $ requestHttpMethod request
       , jsonPair "isBase64Encoded" $ requestIsBase64Encoded request
       , jsonPair "multiValueHeaders" $ requestMultiValueHeaders request
       , jsonPair "multiValueQueryStringParameters" $ requestMultiValueQueryStringParameters request
       , jsonPair "path" $ requestPath request
       ]
-  , responseIsBase64Encoded = True
+  , responseIsBase64Encoded = False
   , responseMultiValueHeaders = Data.Map.empty
   , responseStatusCode = Network.HTTP.Types.ok200
   }
