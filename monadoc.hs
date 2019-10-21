@@ -116,7 +116,7 @@ data Request = Request
   , requestHttpMethod :: Data.Text.Text
   , requestIsBase64Encoded :: Bool
   , requestMultiValueHeaders :: Data.Map.Map Data.Text.Text [Data.Text.Text]
-  , requestMultiValueQueryStringParameters :: Data.Map.Map Data.Text.Text [Data.Text.Text]
+  , requestMultiValueQueryStringParameters :: Maybe (Data.Map.Map Data.Text.Text [Data.Text.Text])
   , requestPath :: Data.Text.Text
   } deriving (Eq, Show)
 
@@ -126,7 +126,7 @@ instance Data.Aeson.FromJSON Request where
     httpMethod <- requiredJsonKey object "httpMethod"
     isBase64Encoded <- requiredJsonKey object "isBase64Encoded"
     multiValueHeaders <- requiredJsonKey object "multiValueHeaders"
-    multiValueQueryStringParameters <- requiredJsonKey object "multiValueQueryStringParameters"
+    multiValueQueryStringParameters <- optionalJsonKey object "multiValueQueryStringParameters"
     path <- requiredJsonKey object "path"
     pure Request
       { requestBody = body
