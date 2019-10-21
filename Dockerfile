@@ -1,4 +1,5 @@
-FROM amazonlinux:2
+# https://docs.docker.com/engine/reference/builder/
+FROM amazonlinux:2.0.20190823.1
 ARG STACK_VERSION=2.1.3
 WORKDIR /tmp/stack
 RUN yum update --assumeyes && yum install --assumeyes gcc gmp-devel gzip make perl postgresql-devel tar xz zip zlib-devel

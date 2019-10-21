@@ -1,3 +1,2 @@
 #! /usr/bin/env sh
-cd "$LAMBDA_TASK_ROOT" || exit
-exec env LD_LIBRARY_PATH="$LD_LIBRARY_PATH:lib" ./monadoc
+exec env LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$LAMBDA_TASK_ROOT/lib" "$LAMBDA_TASK_ROOT/monadoc"

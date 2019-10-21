@@ -1,8 +1,6 @@
 -- TODO
 -- [ ] Handle request/response headers.
 -- [ ] Handle query strings.
--- [ ] Rig everything up in Terraform.
--- [ ] Build and deploy from Semaphore.
 
 module Main ( main ) where
 
@@ -12,15 +10,16 @@ import qualified Control.Monad.Fail
 import qualified Data.Aeson
 import qualified Data.Aeson.Text
 import qualified Data.Aeson.Types
-import qualified Database.MongoDB
-import qualified Database.PostgreSQL.Simple
 import qualified Data.ByteString
 import qualified Data.ByteString.Base64
 import qualified Data.ByteString.Lazy
 import qualified Data.CaseInsensitive
+import qualified Data.Map
+import qualified Data.Maybe
 import qualified Data.Text
 import qualified Data.Text.Encoding
 import qualified Data.Text.Encoding.Error
+import qualified Data.Text.Lazy
 import qualified Network.HTTP.Client
 import qualified Network.HTTP.Types
 import qualified System.Environment
@@ -30,9 +29,7 @@ import qualified System.Environment
 -- <https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html>
 main :: IO ()
 main = do
-  requireMongoDB
-  requirePostgreSQL
-
+  putStrLn "Starting up ..."
   manager <- getManager
   apiUrl <- getApiUrl
 
@@ -40,27 +37,42 @@ main = do
     lambda <- getLambda
 
     Control.Monad.forever $ do
-      invocation <- makeApiRequest manager apiUrl "/runtime/invocation/next" Nothing
+      putStrLn "Getting invocation ..."
+      invocation <- getInvocation manager apiUrl
       requestId <- getRequestId invocation
-      request <- either fail pure . Data.Aeson.eitherDecode $ Network.HTTP.Client.responseBody invocation
+      request <- either fail pure
+        . Data.Aeson.eitherDecode
+        $ Network.HTTP.Client.responseBody invocation
 
       Control.Exception.handle (sendInvocationError manager apiUrl requestId) $ do
         response <- lambda request
         sendInvocationResponse manager apiUrl requestId response
+        putStrLn "Finished invocation."
 
-getRequestId :: Control.Monad.Fail.MonadFail m => Network.HTTP.Client.Response body -> m RequestId
+getInvocation
+  :: Network.HTTP.Client.Manager
+  -> ApiUrl
+  -> IO (Network.HTTP.Client.Response Data.ByteString.Lazy.ByteString)
+getInvocation manager apiUrl =
+  makeApiRequest manager apiUrl "/runtime/invocation/next" Nothing
+
+getRequestId
+  :: Control.Monad.Fail.MonadFail m
+  => Network.HTTP.Client.Response body
+  -> m RequestId
 getRequestId =
   maybe
     (fail $ "missing required header: " <> show lambdaRuntimeAwsRequestId)
-    ( pure
-    . textToRequestId
-    . Data.Text.Encoding.decodeUtf8With Data.Text.Encoding.Error.lenientDecode
-    )
+    (pure . textToRequestId . fromUtf8)
   . lookup lambdaRuntimeAwsRequestId
   . Network.HTTP.Client.responseHeaders
 
-lambdaRuntimeAwsRequestId :: Data.CaseInsensitive.CI Data.ByteString.ByteString
-lambdaRuntimeAwsRequestId = Data.CaseInsensitive.mk . Data.Text.Encoding.encodeUtf8 $ Data.Text.pack "Lambda-Runtime-Aws-Request-Id"
+lambdaRuntimeAwsRequestId
+  :: Data.CaseInsensitive.CI Data.ByteString.ByteString
+lambdaRuntimeAwsRequestId =
+  Data.CaseInsensitive.mk
+    . toUtf8
+    $ Data.Text.pack "Lambda-Runtime-Aws-Request-Id"
 
 type Lambda = Request -> IO Response
 
@@ -73,77 +85,73 @@ getLambda = do
 
 exampleLambda :: Lambda
 exampleLambda request = pure Response
-  { responseBody = requestBody request
-  , responseStatus = Network.HTTP.Types.ok200
+  { responseBody = Just
+    . fromUtf8
+    . Data.ByteString.Base64.encode
+    . toUtf8
+    . Data.Text.Lazy.toStrict
+    . Data.Aeson.Text.encodeToLazyText
+    $ Data.Aeson.object
+      [ jsonPair "body" $ requestBody request
+      , jsonPair "httpMethod" $ requestHttpMethod request
+      , jsonPair "isBase64Encoded" $ requestIsBase64Encoded request
+      , jsonPair "multiValueHeaders" $ requestMultiValueHeaders request
+      , jsonPair "multiValueQueryStringParameters" $ requestMultiValueQueryStringParameters request
+      , jsonPair "path" $ requestPath request
+      ]
+  , responseIsBase64Encoded = True
+  , responseMultiValueHeaders = Data.Map.empty
+  , responseStatusCode = Network.HTTP.Types.ok200
   }
+
+toUtf8 :: Data.Text.Text -> Data.ByteString.ByteString
+toUtf8 = Data.Text.Encoding.encodeUtf8
+
+fromUtf8 :: Data.ByteString.ByteString -> Data.Text.Text
+fromUtf8 = Data.Text.Encoding.decodeUtf8With Data.Text.Encoding.Error.lenientDecode
 
 -- <https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html#api-gateway-simple-proxy-for-lambda-input-format>
 data Request = Request
-  { requestBody :: ! Data.Aeson.Value
-  , requestMethod :: ! Network.HTTP.Types.Method
-  , requestPath :: ! Data.Text.Text
+  { requestBody :: Maybe Data.Text.Text
+  , requestHttpMethod :: Data.Text.Text
+  , requestIsBase64Encoded :: Bool
+  , requestMultiValueHeaders :: Data.Map.Map Data.Text.Text [Data.Text.Text]
+  , requestMultiValueQueryStringParameters :: Data.Map.Map Data.Text.Text [Data.Text.Text]
+  , requestPath :: Data.Text.Text
   } deriving (Eq, Show)
 
 instance Data.Aeson.FromJSON Request where
   parseJSON = Data.Aeson.withObject "Request" $ \ object -> do
-    body <- do
-      x1 <- optionalJsonKey object "body"
-      case x1 of
-        Nothing -> pure Data.Aeson.Null
-        Just x2 -> do
-          isEncoded <- requiredJsonKey object "isBase64Encoded"
-          either fail pure
-            . Data.Aeson.eitherDecodeStrict
-            . (if isEncoded then Data.ByteString.Base64.decodeLenient else id)
-            $ Data.Text.Encoding.encodeUtf8 x2
-    method <- fmap Data.Text.Encoding.encodeUtf8 $ requiredJsonKey object "httpMethod"
+    body <- optionalJsonKey object "body"
+    httpMethod <- requiredJsonKey object "httpMethod"
+    isBase64Encoded <- requiredJsonKey object "isBase64Encoded"
+    multiValueHeaders <- requiredJsonKey object "multiValueHeaders"
+    multiValueQueryStringParameters <- requiredJsonKey object "multiValueQueryStringParameters"
     path <- requiredJsonKey object "path"
     pure Request
       { requestBody = body
-      , requestMethod = method
+      , requestHttpMethod = httpMethod
+      , requestIsBase64Encoded = isBase64Encoded
+      , requestMultiValueHeaders = multiValueHeaders
+      , requestMultiValueQueryStringParameters = multiValueQueryStringParameters
       , requestPath = path
       }
 
 -- <https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html#api-gateway-simple-proxy-for-lambda-output-format>
 data Response = Response
-  { responseBody :: ! Data.Aeson.Value
-  , responseStatus :: ! Network.HTTP.Types.Status
+  { responseBody :: Maybe Data.Text.Text
+  , responseIsBase64Encoded :: Bool
+  , responseMultiValueHeaders :: Data.Map.Map Data.Text.Text [Data.Text.Text]
+  , responseStatusCode :: Network.HTTP.Types.Status
   } deriving (Eq, Show)
 
 instance Data.Aeson.ToJSON Response where
   toJSON response = Data.Aeson.object
-    -- Note that the body is JSON encoded as text. In other words:
-    -- > { "body": "{\"k\":\"v\"}", ... }
-    [ jsonPair "body" . Data.Aeson.Text.encodeToLazyText $ responseBody response
-    , jsonPair "statusCode" . Network.HTTP.Types.statusCode $ responseStatus response
+    [ jsonPair "body" $ responseBody response
+    , jsonPair "isBase64Encoded" $ responseIsBase64Encoded response
+    , jsonPair "multiValueHeaders" $ responseMultiValueHeaders response
+    , jsonPair "statusCode" . Network.HTTP.Types.statusCode $ responseStatusCode response
     ]
-
-sendInvocationResponse
-  :: Data.Aeson.ToJSON json
-  => Network.HTTP.Client.Manager
-  -> ApiUrl
-  -> RequestId
-  -> json
-  -> IO ()
-sendInvocationResponse manager apiUrl requestId =
-  makeApiRequest_ manager apiUrl ("/runtime/invocation/" <> requestIdToString requestId <> "/response") . Just . Data.Aeson.encode
-
--- This program doesn't require MongoDB to function, but I wanted to use it
--- anyway to make sure that everything got linked correctly.
-requireMongoDB :: IO ()
-requireMongoDB = Control.Exception.handle printSomeException
-  . Control.Monad.void
-  . Database.MongoDB.connect
-  $ Database.MongoDB.host mempty
-
--- Same story for PostgreSQL.
-requirePostgreSQL :: IO ()
-requirePostgreSQL = Control.Exception.handle printSomeException
-  . Control.Monad.void
-  $ Database.PostgreSQL.Simple.connectPostgreSQL mempty
-
-printSomeException :: Control.Exception.SomeException -> IO ()
-printSomeException = print
 
 getManager :: IO Network.HTTP.Client.Manager
 getManager = Network.HTTP.Client.newManager managerSettings
@@ -176,42 +184,6 @@ apiUrlToText (ApiUrl text) = text
 apiUrlToString :: ApiUrl -> String
 apiUrlToString = Data.Text.unpack . apiUrlToText
 
-makeApiRequest
-  :: Network.HTTP.Client.Manager
-  -> ApiUrl
-  -> String
-  -> Maybe Data.ByteString.Lazy.ByteString
-  -> IO (Network.HTTP.Client.Response Data.ByteString.Lazy.ByteString)
-makeApiRequest manager apiUrl endpoint maybeBody = do
-  request <- Network.HTTP.Client.parseRequest $ apiUrlToString apiUrl <> endpoint
-  Network.HTTP.Client.httpLbs request
-    { Network.HTTP.Client.method = case maybeBody of
-      Nothing -> Network.HTTP.Types.methodGet
-      Just _ -> Network.HTTP.Types.methodPost
-    , Network.HTTP.Client.requestBody = Network.HTTP.Client.RequestBodyLBS
-      $ case maybeBody of
-        Nothing -> mempty
-        Just body -> body
-    } manager
-
-makeApiRequest_
-  :: Network.HTTP.Client.Manager
-  -> ApiUrl
-  -> String
-  -> Maybe Data.ByteString.Lazy.ByteString
-  -> IO ()
-makeApiRequest_ manager apiUrl endpoint maybeBody = Control.Monad.void
-  $ makeApiRequest manager apiUrl endpoint maybeBody
-
-sendInitializationError
-  :: Network.HTTP.Client.Manager
-  -> ApiUrl
-  -> Control.Exception.SomeException
-  -> IO ()
-sendInitializationError manager apiUrl exception = do
-  print exception
-  sendError manager apiUrl "/runtime/init/error" exception
-
 newtype RequestId
   = RequestId Data.Text.Text
   deriving (Eq, Show)
@@ -225,6 +197,30 @@ requestIdToText (RequestId text) = text
 requestIdToString :: RequestId -> String
 requestIdToString = Data.Text.unpack . requestIdToText
 
+sendInvocationResponse
+  :: Data.Aeson.ToJSON json
+  => Network.HTTP.Client.Manager
+  -> ApiUrl
+  -> RequestId
+  -> json
+  -> IO ()
+sendInvocationResponse manager apiUrl requestId =
+  makeApiRequest_
+      manager
+      apiUrl
+      ("/runtime/invocation/" <> requestIdToString requestId <> "/response")
+    . Just
+    . Data.Aeson.encode
+
+sendInitializationError
+  :: Network.HTTP.Client.Manager
+  -> ApiUrl
+  -> Control.Exception.SomeException
+  -> IO ()
+sendInitializationError manager apiUrl exception = do
+  print exception
+  sendError manager apiUrl "/runtime/init/error" exception
+
 sendInvocationError
   :: Network.HTTP.Client.Manager
   -> ApiUrl
@@ -233,7 +229,11 @@ sendInvocationError
   -> IO ()
 sendInvocationError manager apiUrl requestId exception = do
   print exception
-  sendError manager apiUrl ("/runtime/invocation/" <> requestIdToString requestId <> "/error") exception
+  sendError
+    manager
+    apiUrl
+    ("/runtime/invocation/" <> requestIdToString requestId <> "/error")
+    exception
 
 sendError
   :: Control.Exception.Exception exception
@@ -251,11 +251,51 @@ sendError manager apiUrl endpoint =
     . jsonPair "error"
     . Control.Exception.displayException
 
-jsonPair :: (Data.Aeson.ToJSON v, Data.Aeson.KeyValue kv) => String -> v -> kv
+makeApiRequest_
+  :: Network.HTTP.Client.Manager
+  -> ApiUrl
+  -> String
+  -> Maybe Data.ByteString.Lazy.ByteString
+  -> IO ()
+makeApiRequest_ manager apiUrl endpoint =
+  Control.Monad.void . makeApiRequest manager apiUrl endpoint
+
+makeApiRequest
+  :: Network.HTTP.Client.Manager
+  -> ApiUrl
+  -> String
+  -> Maybe Data.ByteString.Lazy.ByteString
+  -> IO (Network.HTTP.Client.Response Data.ByteString.Lazy.ByteString)
+makeApiRequest manager apiUrl endpoint maybeBody = do
+  request <- Network.HTTP.Client.parseRequest
+    $ apiUrlToString apiUrl <> endpoint
+  Network.HTTP.Client.httpLbs request
+    { Network.HTTP.Client.method =
+      case maybeBody of
+        Nothing -> Network.HTTP.Types.methodGet
+        Just _ -> Network.HTTP.Types.methodPost
+    , Network.HTTP.Client.requestBody =
+      Network.HTTP.Client.RequestBodyLBS
+        $ Data.Maybe.fromMaybe mempty maybeBody
+    } manager
+
+jsonPair
+  :: (Data.Aeson.ToJSON json, Data.Aeson.KeyValue pair)
+  => String
+  -> json
+  -> pair
 jsonPair key value = Data.Text.pack key Data.Aeson..= value
 
-requiredJsonKey :: Data.Aeson.FromJSON a => Data.Aeson.Object -> String -> Data.Aeson.Types.Parser a
-requiredJsonKey o k = o Data.Aeson..: Data.Text.pack k
+requiredJsonKey
+  :: Data.Aeson.FromJSON json
+  => Data.Aeson.Object
+  -> String
+  -> Data.Aeson.Types.Parser json
+requiredJsonKey object key = object Data.Aeson..: Data.Text.pack key
 
-optionalJsonKey :: Data.Aeson.FromJSON a => Data.Aeson.Object -> String -> Data.Aeson.Types.Parser (Maybe a)
-optionalJsonKey o k = o Data.Aeson..:? Data.Text.pack k
+optionalJsonKey
+  :: Data.Aeson.FromJSON json
+  => Data.Aeson.Object
+  -> String
+  -> Data.Aeson.Types.Parser (Maybe json)
+optionalJsonKey object key = object Data.Aeson..:? Data.Text.pack key

@@ -1,6 +1,8 @@
+# https://www.terraform.io/docs/configuration/terraform.html
 terraform {
   required_version = "~> 0.12.12"
 
+  # https://www.terraform.io/docs/backends/types/s3.html
   backend "s3" {
     bucket = "monadoc"
     key = "monadoc.tfstate"
@@ -8,6 +10,7 @@ terraform {
   }
 }
 
+# https://www.terraform.io/docs/providers/aws/index.html
 provider "aws" {
   version = "~> 2.33"
 }
@@ -21,6 +24,7 @@ variable "publish" {
   type = bool
 }
 
+# https://www.terraform.io/docs/providers/aws/r/lambda_function.html
 resource "aws_lambda_function" "this" {
   function_name = "arn:aws:lambda:us-east-1:014479108335:function:example-haskell-lambda-function"
   handler = "hello.handler"

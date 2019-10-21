@@ -1,23 +1,26 @@
+# https://docs.docker.com/compose/compose-file/
 version: '3.7'
 services:
   stack:
     build: .
-    command: sh -c 'stack --version && tail -f /dev/null'
+    command: sh -c 'stack --version && exec tail -f /dev/null'
     entrypoint: []
     environment:
       STACK_ROOT: /opt/monadoc/.stack/root
       STACK_WORK: .stack/work
+    init: true
     volumes:
       - ./:/opt/monadoc
     working_dir: /opt/monadoc
   terraform:
-    command: sh -c 'terraform version && tail -f /dev/null'
+    command: sh -c 'terraform version && exec tail -f /dev/null'
     entrypoint: []
     environment:
       AWS_ACCESS_KEY_ID: null
-      AWS_SECRET_ACCESS_KEY: null
       AWS_DEFAULT_REGION: null
+      AWS_SECRET_ACCESS_KEY: null
     image: hashicorp/terraform:0.12.12
+    init: true
     volumes:
       - ./:/opt/monadoc
     working_dir: /opt/monadoc/terraform
