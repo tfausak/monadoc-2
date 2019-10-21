@@ -1,0 +1,10 @@
+version: '3.7'
+services:
+  stack:
+    build: .
+    environment:
+      STACK_ROOT: /opt/monadoc/.stack/root
+      STACK_WORK: .stack/work
+    volumes:
+      - ./:/opt/monadoc
+    working_dir: /opt/monadoc
