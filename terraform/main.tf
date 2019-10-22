@@ -19,6 +19,15 @@ variable "commit" {
   type = string
 }
 
+# https://www.terraform.io/docs/providers/aws/r/api_gateway_rest_api.html
+resource "aws_api_gateway_rest_api" "this" {
+  name = "example-haskell-lambda-function-API"
+
+  endpoint_configuration {
+    types = ["REGIONAL"]
+  }
+}
+
 # https://www.terraform.io/docs/providers/aws/r/lambda_function.html
 resource "aws_lambda_function" "this" {
   function_name = "arn:aws:lambda:us-east-1:014479108335:function:example-haskell-lambda-function"
