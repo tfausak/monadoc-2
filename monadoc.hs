@@ -40,14 +40,26 @@ main = do
       putStrLn "Getting invocation ..."
       invocation <- getInvocation manager apiUrl
       requestId <- getRequestId invocation
-      request <- either fail pure
-        . Data.Aeson.eitherDecode
-        $ Network.HTTP.Client.responseBody invocation
+      traceId <- getTraceId invocation
+      withEnv "_X_AMZN_TRACE_ID" (traceIdToString traceId) $ do
+        request <- either fail pure
+          . Data.Aeson.eitherDecode
+          $ Network.HTTP.Client.responseBody invocation
 
-      Control.Exception.handle (sendInvocationError manager apiUrl requestId) $ do
-        response <- lambda request
-        sendInvocationResponse manager apiUrl requestId response
-        putStrLn "Finished invocation."
+        Control.Exception.handle (sendInvocationError manager apiUrl requestId) $ do
+          response <- lambda request
+          sendInvocationResponse manager apiUrl requestId response
+          putStrLn "Finished invocation."
+
+withEnv :: String -> String -> IO a -> IO a
+withEnv name value action = do
+  maybeValue <- System.Environment.lookupEnv name
+  Control.Exception.bracket
+    (System.Environment.setEnv name value)
+    (\ () -> case maybeValue of
+      Nothing -> System.Environment.unsetEnv name
+      Just oldValue -> System.Environment.setEnv name oldValue)
+    (\ () -> action)
 
 getInvocation
   :: Network.HTTP.Client.Manager
@@ -60,19 +72,28 @@ getRequestId
   :: Control.Monad.Fail.MonadFail m
   => Network.HTTP.Client.Response body
   -> m RequestId
-getRequestId =
-  maybe
-    (fail $ "missing required header: " <> show lambdaRuntimeAwsRequestId)
-    (pure . textToRequestId . fromUtf8)
-  . lookup lambdaRuntimeAwsRequestId
-  . Network.HTTP.Client.responseHeaders
+getRequestId = either fail (pure . textToRequestId) . getHeader "Lambda-Runtime-Aws-Request-Id"
 
-lambdaRuntimeAwsRequestId
-  :: Data.CaseInsensitive.CI Data.ByteString.ByteString
-lambdaRuntimeAwsRequestId =
-  Data.CaseInsensitive.mk
+getTraceId
+  :: Control.Monad.Fail.MonadFail m
+  => Network.HTTP.Client.Response body
+  -> m TraceId
+getTraceId = either fail (pure . textToTraceId) . getHeader "Lambda-Runtime-Trace-Id"
+
+getHeader
+  :: String
+  -> Network.HTTP.Client.Response body
+  -> Either String Data.Text.Text
+getHeader name =
+  maybe
+    (Left $ "missing required header: " <> show name)
+    (Right . fromUtf8)
+  . lookup
+    ( Data.CaseInsensitive.mk
     . toUtf8
-    $ Data.Text.pack "Lambda-Runtime-Aws-Request-Id"
+    $ Data.Text.pack name
+    )
+  . Network.HTTP.Client.responseHeaders
 
 type Lambda = Request -> IO Response
 
@@ -197,6 +218,19 @@ requestIdToText (RequestId text) = text
 
 requestIdToString :: RequestId -> String
 requestIdToString = Data.Text.unpack . requestIdToText
+
+newtype TraceId
+  = TraceId Data.Text.Text
+  deriving (Eq, Show)
+
+textToTraceId :: Data.Text.Text -> TraceId
+textToTraceId = TraceId
+
+traceIdToText :: TraceId -> Data.Text.Text
+traceIdToText (TraceId text) = text
+
+traceIdToString :: TraceId -> String
+traceIdToString = Data.Text.unpack . traceIdToText
 
 sendInvocationResponse
   :: Data.Aeson.ToJSON json
