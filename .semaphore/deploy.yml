@@ -19,7 +19,6 @@ blocks:
             - docker-compose run terraform terraform plan
               -out monadoc.tfplan
               -var commit="$SEMAPHORE_GIT_SHA"
-              -var publish=true
             - docker-compose run terraform terraform apply
               -auto-approve
               monadoc.tfplan
