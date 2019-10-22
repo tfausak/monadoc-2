@@ -30,9 +30,18 @@ resource "aws_api_gateway_rest_api" "this" {
 
 # https://www.terraform.io/docs/providers/aws/r/api_gateway_resource.html
 resource "aws_api_gateway_resource" "this" {
-  rest_api_id = aws_api_gateway_rest_api.this.id
   parent_id   = aws_api_gateway_rest_api.this.root_resource_id
   path_part   = "{proxy+}"
+  rest_api_id = aws_api_gateway_rest_api.this.id
+}
+
+# https://www.terraform.io/docs/providers/aws/r/api_gateway_method.html
+resource "aws_api_gateway_method" "this" {
+  authorization      = "NONE"
+  http_method        = "ANY"
+  request_parameters = { "method.request.path.proxy" = true }
+  resource_id        = aws_api_gateway_resource.this.id
+  rest_api_id        = aws_api_gateway_rest_api.this.id
 }
 
 # https://www.terraform.io/docs/providers/aws/r/lambda_function.html
