@@ -101,7 +101,7 @@ getLambda :: IO Lambda
 getLambda = do
   handler <- System.Environment.getEnv "_HANDLER"
   case handler of
-    "hello.handler" -> pure exampleLambda
+    "monadoc.main" -> pure exampleLambda
     _ -> fail $ "unknown handler: " <> show handler
 
 exampleLambda :: Lambda

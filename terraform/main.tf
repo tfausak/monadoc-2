@@ -22,7 +22,7 @@ variable "commit" {
 # https://www.terraform.io/docs/providers/aws/r/lambda_function.html
 resource "aws_lambda_function" "this" {
   function_name = "arn:aws:lambda:us-east-1:014479108335:function:example-haskell-lambda-function"
-  handler       = "hello.handler"
+  handler       = "monadoc.main"
   publish       = true
   role          = "arn:aws:iam::014479108335:role/service-role/example-haskell-lambda-function-role-vrvm2inv"
   runtime       = "provided"
