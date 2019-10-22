@@ -55,4 +55,16 @@ resource "aws_lambda_function" "this" {
   s3_key        = "functions/${var.commit}.zip"
 }
 
+# https://www.terraform.io/docs/providers/aws/r/api_gateway_integration.html
+resource "aws_api_gateway_integration" "this" {
+  cache_key_parameters    = ["method.request.path.proxy"]
+  content_handling        = "CONVERT_TO_TEXT"
+  http_method             = aws_api_gateway_method.this.http_method
+  integration_http_method = "POST"
+  resource_id             = aws_api_gateway_resource.this.id
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.this.invoke_arn
+}
+
 # TODO: Import more resources into Terraform.
