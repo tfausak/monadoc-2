@@ -19,10 +19,16 @@ import qualified Data.Text.Encoding
 import qualified Data.Text.Encoding.Error
 import qualified Data.Text.Lazy
 import qualified Distribution.PackageDescription.Parsec
+import qualified Distribution.Pretty
+import qualified Distribution.Types.GenericPackageDescription
+import qualified Distribution.Types.PackageDescription
+import qualified Distribution.Types.PackageId
+import qualified Distribution.Types.PackageName
 import qualified Network.HTTP.Client
 import qualified Network.HTTP.Client.TLS
 import qualified Network.HTTP.Types
 import qualified System.Environment
+import qualified System.FilePath
 
 -- This is just a placeholder for grabbing package descriptions from Hackage. I haven't figured out where it should live yet.
 scratch :: IO ()
@@ -30,15 +36,37 @@ scratch = do
   manager <- Network.HTTP.Client.TLS.newTlsManager
   request <- Network.HTTP.Client.parseUrlThrow "https://hackage.haskell.org/01-index.tar.gz"
   response <- Network.HTTP.Client.httpLbs request manager
-  print
-    . last
+  mapM_ print
+    . fmap
+      ( \ package ->
+        ( Distribution.Types.PackageName.unPackageName
+        . Distribution.Types.PackageId.pkgName
+        . Distribution.Types.PackageDescription.package
+        . Distribution.Types.GenericPackageDescription.packageDescription
+        $ package
+        , Distribution.Pretty.prettyShow
+        . Distribution.Types.PackageId.pkgVersion
+        . Distribution.Types.PackageDescription.package
+        . Distribution.Types.GenericPackageDescription.packageDescription
+        $ package
+        , Data.Maybe.fromMaybe "0"
+        . lookup "x-revision"
+        . Distribution.Types.PackageDescription.customFieldsPD
+        . Distribution.Types.GenericPackageDescription.packageDescription
+        $ package
+        )
+      )
     . fmap (\ (path, contents) -> case Distribution.PackageDescription.Parsec.parseGenericPackageDescriptionMaybe contents of
       Just package -> package
-      _ -> error $ "invalid package: " <> show path)
-    . fmap (\ entry -> case Codec.Archive.Tar.entryContent entry of
-      Codec.Archive.Tar.NormalFile contents _ ->
-        (Codec.Archive.Tar.entryPath entry, Data.ByteString.Lazy.toStrict contents)
-      _ -> error $ "unexpected entry: " <> show entry)
+      _ -> error $ "invalid package: " <> show (path, contents))
+    . Data.Maybe.mapMaybe (\ entry ->
+      let path = Codec.Archive.Tar.entryPath entry
+      in if System.FilePath.isExtensionOf "cabal" path
+        then case Codec.Archive.Tar.entryContent entry of
+          Codec.Archive.Tar.NormalFile contents _ ->
+            Just (path, Data.ByteString.Lazy.toStrict contents)
+          _ -> error $ "unexpected entry: " <> show entry
+        else Nothing)
     . Codec.Archive.Tar.foldEntries (:) [] Control.Exception.throw
     . Codec.Archive.Tar.read
     . Codec.Compression.GZip.decompress
