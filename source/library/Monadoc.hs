@@ -1,4 +1,4 @@
-module Main ( main ) where
+module Monadoc ( main ) where
 
 import qualified Control.Exception
 import qualified Control.Monad
@@ -50,12 +50,12 @@ main = do
 withEnv :: String -> String -> IO a -> IO a
 withEnv name value action = do
   maybeValue <- System.Environment.lookupEnv name
-  Control.Exception.bracket
+  Control.Exception.bracket_
     (System.Environment.setEnv name value)
-    (\ () -> case maybeValue of
+    (case maybeValue of
       Nothing -> System.Environment.unsetEnv name
       Just oldValue -> System.Environment.setEnv name oldValue)
-    (\ () -> action)
+    action
 
 getInvocation
   :: Network.HTTP.Client.Manager
