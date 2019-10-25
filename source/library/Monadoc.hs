@@ -27,7 +27,9 @@ import qualified Distribution.Types.PackageName
 import qualified Network.HTTP.Client
 import qualified Network.HTTP.Client.TLS
 import qualified Network.HTTP.Types
+import qualified System.Directory
 import qualified System.Environment
+import qualified System.Exit
 import qualified System.FilePath
 
 -- This is just a placeholder for grabbing package descriptions from Hackage. I haven't figured out where it should live yet.
@@ -36,9 +38,44 @@ scratch = do
   manager <- Network.HTTP.Client.TLS.newTlsManager
   request <- Network.HTTP.Client.parseUrlThrow "https://hackage.haskell.org/01-index.tar.gz"
   response <- Network.HTTP.Client.httpLbs request manager
-  mapM_ print
+  let directory = "hackage"
+  mapM_
+    (\ (name, version, revision, contents) -> do
+      putStrLn $ unwords [name, version, revision]
+      System.Directory.createDirectoryIfMissing True $
+        System.FilePath.joinPath [directory, name, version]
+      Data.ByteString.writeFile
+        (System.FilePath.joinPath
+          [ directory
+          , name
+          , version
+          , mconcat [name, "-", version, "-", revision, ".cabal"]
+          ])
+        contents
+      let tarball = System.FilePath.joinPath
+            [ directory
+            , name
+            , version
+            , mconcat [name, "-", version, ".tar.gz"]
+            ]
+      exists <- System.Directory.doesFileExist tarball
+      Control.Monad.unless exists $ do
+        req <- Network.HTTP.Client.parseUrlThrow $ mconcat
+          [ "https://hackage.haskell.org/package/"
+          , name
+          , "-"
+          , version
+          , "/"
+          , name
+          , "-"
+          , version
+          , ".tar.gz"
+          ]
+        res <- Network.HTTP.Client.httpLbs req manager
+        Data.ByteString.Lazy.writeFile tarball $ Network.HTTP.Client.responseBody res
+    )
     . fmap
-      ( \ package ->
+      ( \ (package, contents) ->
         ( Distribution.Types.PackageName.unPackageName
         . Distribution.Types.PackageId.pkgName
         . Distribution.Types.PackageDescription.package
@@ -54,10 +91,11 @@ scratch = do
         . Distribution.Types.PackageDescription.customFieldsPD
         . Distribution.Types.GenericPackageDescription.packageDescription
         $ package
+        , contents
         )
       )
     . fmap (\ (path, contents) -> case Distribution.PackageDescription.Parsec.parseGenericPackageDescriptionMaybe contents of
-      Just package -> package
+      Just package -> (package, contents)
       _ -> error $ "invalid package: " <> show (path, contents))
     . Data.Maybe.mapMaybe (\ entry ->
       let path = Codec.Archive.Tar.entryPath entry
@@ -78,6 +116,13 @@ scratch = do
 -- <https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html>
 main :: IO ()
 main = do
+  args <- System.Environment.getArgs
+  case args of
+    ["scratch"] -> do
+      scratch
+      System.Exit.exitSuccess
+    _ -> pure ()
+
   putStrLn "Starting up ..."
   manager <- getManager
   apiUrl <- getApiUrl

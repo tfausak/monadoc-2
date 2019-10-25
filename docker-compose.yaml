@@ -1,6 +1,7 @@
 # https://docs.docker.com/compose/compose-file/
 version: '3.7'
 services:
+
   stack:
     build: .
     command: sh -c 'stack --version && exec tail -f /dev/null'
@@ -12,6 +13,15 @@ services:
     volumes:
       - ./:/opt/monadoc
     working_dir: /opt/monadoc
+
+  postgres:
+    image: postgres:11.5-alpine
+    init: true
+    ports:
+      - 5432
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
   terraform:
     command: sh -c 'terraform version && exec tail -f /dev/null'
     entrypoint: []
@@ -24,3 +34,6 @@ services:
     volumes:
       - ./:/opt/monadoc
     working_dir: /opt/monadoc
+
+volumes:
+  postgres: null
