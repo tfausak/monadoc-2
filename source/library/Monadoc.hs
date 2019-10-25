@@ -1,5 +1,7 @@
-module Monadoc ( main ) where
+module Monadoc ( main, scratch ) where
 
+import qualified Codec.Archive.Tar
+import qualified Codec.Compression.GZip
 import qualified Control.Exception
 import qualified Control.Monad
 import qualified Control.Monad.Fail
@@ -16,9 +18,32 @@ import qualified Data.Text
 import qualified Data.Text.Encoding
 import qualified Data.Text.Encoding.Error
 import qualified Data.Text.Lazy
+import qualified Distribution.PackageDescription.Parsec
 import qualified Network.HTTP.Client
+import qualified Network.HTTP.Client.TLS
 import qualified Network.HTTP.Types
 import qualified System.Environment
+
+-- This is just a placeholder for grabbing package descriptions from Hackage. I haven't figured out where it should live yet.
+scratch :: IO ()
+scratch = do
+  manager <- Network.HTTP.Client.TLS.newTlsManager
+  request <- Network.HTTP.Client.parseUrlThrow "https://hackage.haskell.org/01-index.tar.gz"
+  response <- Network.HTTP.Client.httpLbs request manager
+  print
+    . last
+    . fmap (\ (path, contents) -> case Distribution.PackageDescription.Parsec.parseGenericPackageDescriptionMaybe contents of
+      Just package -> package
+      _ -> error $ "invalid package: " <> show path)
+    . fmap (\ entry -> case Codec.Archive.Tar.entryContent entry of
+      Codec.Archive.Tar.NormalFile contents _ ->
+        (Codec.Archive.Tar.entryPath entry, Data.ByteString.Lazy.toStrict contents)
+      _ -> error $ "unexpected entry: " <> show entry)
+    . Codec.Archive.Tar.foldEntries (:) [] Control.Exception.throw
+    . Codec.Archive.Tar.read
+    . Codec.Compression.GZip.decompress
+    . Network.HTTP.Client.responseBody
+    $ response
 
 -- <https://docs.aws.amazon.com/lambda/latest/dg/runtimes-custom.html>
 -- <https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html>
