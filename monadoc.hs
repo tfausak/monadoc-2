@@ -1,7 +1,3 @@
--- TODO
--- [ ] Handle request/response headers.
--- [ ] Handle query strings.
-
 module Main ( main ) where
 
 import qualified Control.Exception

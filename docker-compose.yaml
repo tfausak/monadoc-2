@@ -23,4 +23,4 @@ services:
     init: true
     volumes:
       - ./:/opt/monadoc
-    working_dir: /opt/monadoc/terraform
+    working_dir: /opt/monadoc

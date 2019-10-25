@@ -67,4 +67,41 @@ resource "aws_api_gateway_integration" "this" {
   uri                     = aws_lambda_function.this.invoke_arn
 }
 
+# https://www.terraform.io/docs/providers/aws/r/route53_zone.html
+resource "aws_route53_zone" "this" {
+  name = "monadoc.com"
+}
+
+# https://www.terraform.io/docs/providers/aws/r/acm_certificate.html
+resource "aws_acm_certificate" "this" {
+  domain_name       = "api.monadoc.com"
+  validation_method = "DNS"
+}
+
+# https://www.terraform.io/docs/providers/aws/r/route53_record.html
+resource "aws_route53_record" "certificate" {
+  name    = aws_acm_certificate.this.domain_validation_options.0.resource_record_name
+  records = [aws_acm_certificate.this.domain_validation_options.0.resource_record_value]
+  ttl     = 300
+  type    = aws_acm_certificate.this.domain_validation_options.0.resource_record_type
+  zone_id = aws_route53_zone.this.id
+}
+resource "aws_route53_record" "this" {
+  name    = "api.monadoc.com"
+  type    = "A"
+  zone_id = aws_route53_zone.this.id
+
+  alias {
+    evaluate_target_health = false
+    name                   = "d1fokyv83vvb6w.cloudfront.net."
+    zone_id                = "Z2FDTNDATAQYW2"
+  }
+}
+
+# https://www.terraform.io/docs/providers/aws/r/acm_certificate_validation.html
+resource "aws_acm_certificate_validation" "this" {
+  certificate_arn         = aws_acm_certificate.this.arn
+  validation_record_fqdns = [aws_route53_record.certificate.fqdn]
+}
+
 # TODO: Import more resources into Terraform.
