@@ -87,7 +87,7 @@ resource "aws_route53_record" "certificate" {
   zone_id = aws_route53_zone.this.id
 }
 resource "aws_route53_record" "this" {
-  name    = "api.monadoc.com"
+  name    = aws_acm_certificate.this.domain_name
   type    = "A"
   zone_id = aws_route53_zone.this.id
 
@@ -102,6 +102,33 @@ resource "aws_route53_record" "this" {
 resource "aws_acm_certificate_validation" "this" {
   certificate_arn         = aws_acm_certificate.this.arn
   validation_record_fqdns = [aws_route53_record.certificate.fqdn]
+}
+
+# https://www.terraform.io/docs/providers/aws/r/api_gateway_domain_name.html
+resource "aws_api_gateway_domain_name" "this" {
+  certificate_arn = aws_acm_certificate.this.arn
+  domain_name     = aws_acm_certificate.this.domain_name
+}
+
+# https://www.terraform.io/docs/providers/aws/r/api_gateway_base_path_mapping.html
+resource "aws_api_gateway_base_path_mapping" "this" {
+  api_id      = aws_api_gateway_rest_api.this.id
+  domain_name = aws_acm_certificate.this.domain_name
+  stage_name  = "default"
+}
+
+# https://www.terraform.io/docs/providers/aws/r/api_gateway_deployment.html
+resource "aws_api_gateway_deployment" "this" {
+  depends_on  = [aws_api_gateway_integration.this]
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  stage_name  = "default"
+}
+
+# https://www.terraform.io/docs/providers/aws/r/api_gateway_stage.html
+resource "aws_api_gateway_stage" "this" {
+  deployment_id = aws_api_gateway_deployment.this.id
+  rest_api_id   = aws_api_gateway_rest_api.this.id
+  stage_name    = "default"
 }
 
 # TODO: Import more resources into Terraform.
