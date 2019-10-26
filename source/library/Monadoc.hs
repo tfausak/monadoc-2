@@ -71,8 +71,18 @@ scratch = do
           , version
           , ".tar.gz"
           ]
-        res <- Network.HTTP.Client.httpLbs req manager
-        Data.ByteString.Lazy.writeFile tarball $ Network.HTTP.Client.responseBody res
+        Control.Exception.handle
+          (\ exception -> case exception of
+            Network.HTTP.Client.HttpExceptionRequest _ (Network.HTTP.Client.StatusCodeException res _) ->
+              case Network.HTTP.Types.statusCode $ Network.HTTP.Client.responseStatus res of
+                451 -> Data.ByteString.Lazy.writeFile tarball
+                  . Codec.Compression.GZip.compress
+                  $ Codec.Archive.Tar.write []
+                _ -> Control.Exception.throwIO exception
+            _ -> Control.Exception.throwIO exception)
+          $ do
+            res <- Network.HTTP.Client.httpLbs req manager
+            Data.ByteString.Lazy.writeFile tarball $ Network.HTTP.Client.responseBody res
     )
     . fmap
       ( \ (package, contents) ->
