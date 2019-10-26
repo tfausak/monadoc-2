@@ -75,6 +75,9 @@ scratch = do
           (\ exception -> case exception of
             Network.HTTP.Client.HttpExceptionRequest _ (Network.HTTP.Client.StatusCodeException res _) ->
               case Network.HTTP.Types.statusCode $ Network.HTTP.Client.responseStatus res of
+                410 -> Data.ByteString.Lazy.writeFile tarball
+                  . Codec.Compression.GZip.compress
+                  $ Codec.Archive.Tar.write []
                 451 -> Data.ByteString.Lazy.writeFile tarball
                   . Codec.Compression.GZip.compress
                   $ Codec.Archive.Tar.write []
