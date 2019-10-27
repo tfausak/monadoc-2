@@ -24,6 +24,7 @@ import qualified Distribution.Types.GenericPackageDescription
 import qualified Distribution.Types.PackageDescription
 import qualified Distribution.Types.PackageId
 import qualified Distribution.Types.PackageName
+import qualified Documentation.Haddock
 import qualified Network.HTTP.Client
 import qualified Network.HTTP.Client.TLS
 import qualified Network.HTTP.Types
@@ -86,15 +87,24 @@ scratch = do
           $ do
             res <- Network.HTTP.Client.httpLbs req manager
             Data.ByteString.Lazy.writeFile tarball $ Network.HTTP.Client.responseBody res
-      stuff <- Data.ByteString.Lazy.readFile tarball
-      print
-        . length
+      packageContents <- Data.ByteString.Lazy.readFile tarball
+      mapM_
+        (\ haskellContents -> do
+          let file = "tmp.hs"
+          Data.ByteString.Lazy.writeFile file haskellContents
+          -- TODO: get this to actually work
+          -- seems like it's doing some type checking?
+          -- i just need parsing
+          interfaces <- Documentation.Haddock.createInterfaces [] [file]
+          print $ length interfaces
+        )
         . Data.Maybe.mapMaybe (\ entry -> case Codec.Archive.Tar.entryContent entry of
-          Codec.Archive.Tar.NormalFile _ _ ->
-            if System.FilePath.isExtensionOf "hs" $ Codec.Archive.Tar.entryPath entry
-              then Just entry
-              else Nothing
-          Codec.Archive.Tar.Directory -> Nothing
+          Codec.Archive.Tar.NormalFile haskellContents _ ->
+            case System.FilePath.takeExtension $ Codec.Archive.Tar.entryPath entry of
+              ".hs" -> Just haskellContents
+              -- TODO: literate haskell? boot files?
+              _ -> Nothing
+          Codec.Archive.Tar.Directory -> Nothing -- iconv-0.2-0
           Codec.Archive.Tar.OtherEntryType 'L' _ _ -> Nothing -- happy-0.16-0
           Codec.Archive.Tar.OtherEntryType '5' _ _ -> Nothing -- PlslTools-0.0.1-0
           Codec.Archive.Tar.OtherEntryType 'g' _ _ -> Nothing -- pasty-0.1-0
@@ -107,7 +117,7 @@ scratch = do
           _ -> Control.Exception.throw formatError)
         . Codec.Archive.Tar.read
         . Codec.Compression.GZip.decompress
-        $ stuff
+        $ packageContents
     )
     . fmap
       ( \ (package, contents) ->
