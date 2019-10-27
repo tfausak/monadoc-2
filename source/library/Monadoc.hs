@@ -86,6 +86,28 @@ scratch = do
           $ do
             res <- Network.HTTP.Client.httpLbs req manager
             Data.ByteString.Lazy.writeFile tarball $ Network.HTTP.Client.responseBody res
+      stuff <- Data.ByteString.Lazy.readFile tarball
+      print
+        . length
+        . Data.Maybe.mapMaybe (\ entry -> case Codec.Archive.Tar.entryContent entry of
+          Codec.Archive.Tar.NormalFile _ _ ->
+            if System.FilePath.isExtensionOf "hs" $ Codec.Archive.Tar.entryPath entry
+              then Just entry
+              else Nothing
+          Codec.Archive.Tar.Directory -> Nothing
+          Codec.Archive.Tar.OtherEntryType 'L' _ _ -> Nothing -- happy-0.16-0
+          Codec.Archive.Tar.OtherEntryType '5' _ _ -> Nothing -- PlslTools-0.0.1-0
+          Codec.Archive.Tar.OtherEntryType 'g' _ _ -> Nothing -- pasty-0.1-0
+          Codec.Archive.Tar.OtherEntryType 'x' _ _ -> Nothing -- binembed-example-0.1-0
+          Codec.Archive.Tar.HardLink _ -> Nothing -- edit-lenses-demo-0.1-0
+          Codec.Archive.Tar.SymbolicLink _ -> Nothing -- pandoc-0.4-0
+          _ -> error $ "unexpected entry: " <> show entry)
+        . Codec.Archive.Tar.foldEntries (:) [] (\ formatError -> case formatError of
+          Codec.Archive.Tar.ShortTrailer -> [] -- PlslTools-0.0.1-0
+          _ -> Control.Exception.throw formatError)
+        . Codec.Archive.Tar.read
+        . Codec.Compression.GZip.decompress
+        $ stuff
     )
     . fmap
       ( \ (package, contents) ->
@@ -107,15 +129,14 @@ scratch = do
         , contents
         )
       )
-    . fmap (\ (path, contents) -> case Distribution.PackageDescription.Parsec.parseGenericPackageDescriptionMaybe contents of
+    . fmap (\ contents -> case Distribution.PackageDescription.Parsec.parseGenericPackageDescriptionMaybe contents of
       Just package -> (package, contents)
-      _ -> error $ "invalid package: " <> show (path, contents))
+      _ -> error $ "invalid package: " <> show contents)
     . Data.Maybe.mapMaybe (\ entry ->
-      let path = Codec.Archive.Tar.entryPath entry
-      in if System.FilePath.isExtensionOf "cabal" path
+      if System.FilePath.isExtensionOf "cabal" $ Codec.Archive.Tar.entryPath entry
         then case Codec.Archive.Tar.entryContent entry of
           Codec.Archive.Tar.NormalFile contents _ ->
-            Just (path, Data.ByteString.Lazy.toStrict contents)
+            Just $ Data.ByteString.Lazy.toStrict contents
           _ -> error $ "unexpected entry: " <> show entry
         else Nothing)
     . Codec.Archive.Tar.foldEntries (:) [] Control.Exception.throw
